@@ -1,5 +1,6 @@
 // Serve docker tests set up a server and run the integration tests
 // for docker against it.
+//+build linux
 
 package docker
 

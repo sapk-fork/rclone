@@ -1,3 +1,6 @@
+// Package docker serves a remote suitable for use with docker volume api
+//+build linux
+
 package docker
 
 //Limitation: To use subpath we are limited to defining a new volume definition via alias

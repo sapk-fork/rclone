@@ -1,4 +1,6 @@
 // Package docker serves a remote suitable for use with docker volume api
+//+build linux
+
 package docker
 
 import (

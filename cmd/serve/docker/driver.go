@@ -13,6 +13,7 @@ import (
 
 	"github.com/docker/go-plugins-helpers/volume"
 
+	"github.com/rclone/rclone/fs"
 	"github.com/rclone/rclone/fs/config"
 	"github.com/rclone/rclone/fs/rc"
 )
@@ -122,7 +123,12 @@ func folderIsEmpty(name string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	defer f.Close()
+	defer func() {
+		err := f.Close()
+		if err != nil {
+			fs.Debugf(nil, "Unable to close folder: %v", err)
+		}
+	}()
 
 	_, err = f.Readdirnames(1) // Or f.Readdir(1)
 	if err == io.EOF {

@@ -106,8 +106,8 @@ func AddFlags(flagSet *pflag.FlagSet) {
 	flags.BoolVarP(flagSet, &Opt.NetworkMode, "network-mode", "", Opt.NetworkMode, "Mount as remote network drive, instead of fixed disk drive. Supported on Windows only")
 }
 
-// Check if folder is empty
-func checkMountEmpty(mountpoint string) error {
+//CheckMountEmpty Check if folder is empty
+func CheckMountEmpty(mountpoint string) error {
 	fp, fpErr := os.Open(mountpoint)
 
 	if fpErr != nil {
@@ -435,60 +435,7 @@ When ` + "`--vfs-read-chunk-size-limit 500M`" + ` is specified, the result would
 
 			mountpoint := args[1]
 			fdst := cmd.NewFsDir(args)
-			if fdst.Name() == "" || fdst.Name() == "local" {
-				err := checkMountpointOverlap(fdst.Root(), mountpoint)
-				if err != nil {
-					log.Fatalf("Fatal error: %v", err)
-				}
-			}
-
-			// Show stats if the user has specifically requested them
-			if cmd.ShowStats() {
-				defer cmd.StartStats()()
-			}
-
-			// Inform about ignored flags on Windows,
-			// and if not on Windows and not --allow-non-empty flag is used
-			// verify that mountpoint is empty.
-			if runtime.GOOS == "windows" {
-				if opt.AllowNonEmpty {
-					fs.Logf(nil, "--allow-non-empty flag does nothing on Windows")
-				}
-				if opt.AllowRoot {
-					fs.Logf(nil, "--allow-root flag does nothing on Windows")
-				}
-				if opt.AllowOther {
-					fs.Logf(nil, "--allow-other flag does nothing on Windows")
-				}
-			} else if !opt.AllowNonEmpty {
-				err := checkMountEmpty(mountpoint)
-				if err != nil {
-					log.Fatalf("Fatal error: %v", err)
-				}
-			}
-
-			// Work out the volume name, removing special
-			// characters from it if necessary
-			if opt.VolumeName == "" {
-				opt.VolumeName = fdst.Name() + ":" + fdst.Root()
-			}
-			opt.VolumeName = strings.Replace(opt.VolumeName, ":", " ", -1)
-			opt.VolumeName = strings.Replace(opt.VolumeName, "/", " ", -1)
-			opt.VolumeName = strings.TrimSpace(opt.VolumeName)
-			if runtime.GOOS == "windows" && len(opt.VolumeName) > 32 {
-				opt.VolumeName = opt.VolumeName[:32]
-			}
-
-			// Start background task if --background is specified
-			if opt.Daemon {
-				daemonized := startBackgroundMode()
-				if daemonized {
-					return
-				}
-			}
-
-			VFS := vfs.New(fdst, &vfsflags.Opt)
-			err := Mount(VFS, mountpoint, mount, &opt)
+			err := RunMount(fdst, mountpoint, &opt, mount)
 			if err != nil {
 				log.Fatalf("Fatal error: %v", err)
 			}
@@ -527,6 +474,67 @@ func ClipBlocks(b *uint64) {
 	if *b > max {
 		*b = max
 	}
+}
+
+// RunMount mounts the remote at mountpoint and filter before.
+func RunMount(fdst fs.Fs, mountpoint string, opt *Options, mount MountFn) error {
+	if opt == nil {
+		opt = &DefaultOpt
+	}
+	if fdst.Name() == "" || fdst.Name() == "local" {
+		err := checkMountpointOverlap(fdst.Root(), mountpoint)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Show stats if the user has specifically requested them
+	if cmd.ShowStats() {
+		defer cmd.StartStats()()
+	}
+
+	// Inform about ignored flags on Windows,
+	// and if not on Windows and not --allow-non-empty flag is used
+	// verify that mountpoint is empty.
+	if runtime.GOOS == "windows" {
+		if opt.AllowNonEmpty {
+			fs.Logf(nil, "--allow-non-empty flag does nothing on Windows")
+		}
+		if opt.AllowRoot {
+			fs.Logf(nil, "--allow-root flag does nothing on Windows")
+		}
+		if opt.AllowOther {
+			fs.Logf(nil, "--allow-other flag does nothing on Windows")
+		}
+	} else if !opt.AllowNonEmpty {
+		err := CheckMountEmpty(mountpoint)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Work out the volume name, removing special
+	// characters from it if necessary
+	if opt.VolumeName == "" {
+		opt.VolumeName = fdst.Name() + ":" + fdst.Root()
+	}
+	opt.VolumeName = strings.Replace(opt.VolumeName, ":", " ", -1)
+	opt.VolumeName = strings.Replace(opt.VolumeName, "/", " ", -1)
+	opt.VolumeName = strings.TrimSpace(opt.VolumeName)
+	if runtime.GOOS == "windows" && len(opt.VolumeName) > 32 {
+		opt.VolumeName = opt.VolumeName[:32]
+	}
+
+	// Start background task if --background is specified
+	if opt.Daemon {
+		daemonized := startBackgroundMode()
+		if daemonized {
+			return nil
+		}
+	}
+
+	VFS := vfs.New(fdst, &vfsflags.Opt)
+	return Mount(VFS, mountpoint, mount, opt)
 }
 
 // Mount mounts the remote at mountpoint.

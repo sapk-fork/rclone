@@ -32,7 +32,7 @@ var Command = &cobra.Command{
 This allows docker to use rclone as a data storage mechanism for various cloud providers.`,
 	Run: func(command *cobra.Command, args []string) {
 		cmd.CheckArgs(0, 0, command, args)
-		cmd.Run(false, true, command, func() error {
+		cmd.Run(false, false, command, func() error { //TODO cmd.ShowStats() ?
 			d := NewDriver(baseDirectory)
 			h := volume.NewHandler(d)
 			return h.ServeUnix(PluginAlias, gid)

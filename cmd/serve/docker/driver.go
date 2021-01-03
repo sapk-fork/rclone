@@ -6,16 +6,19 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
+	"strings"
 
 	"github.com/docker/go-plugins-helpers/volume"
 
-	"github.com/rclone/rclone/fs"
+	"github.com/rclone/rclone/cmd"
+	"github.com/rclone/rclone/cmd/mountlib"
 	"github.com/rclone/rclone/fs/config"
 	"github.com/rclone/rclone/fs/rc"
+	"github.com/rclone/rclone/vfs/vfsflags"
 )
 
 //Driver implement docker driver api
@@ -36,6 +39,8 @@ func (d *Driver) Create(r *volume.CreateRequest) error {
 		return errors.New("missing `type` option")
 	}
 
+	//TODO add support for fuse.MountOption by volume ? by instance ?
+
 	//Check local mountpoint
 	mPath := filepath.Join(d.root, r.Name)
 	_, err := os.Lstat(mPath) //Create folder if not exist. This will also failed if already exist
@@ -46,7 +51,7 @@ func (d *Driver) Create(r *volume.CreateRequest) error {
 	} else if err != nil {
 		return err
 	}
-	isEmpty, err := folderIsEmpty(mPath)
+	isEmpty, err := mountlib.CheckMountEmpty(mPath)
 	if err != nil {
 		return err
 	}
@@ -98,13 +103,41 @@ func (d *Driver) Path(r *volume.PathRequest) (*volume.PathResponse, error) {
 
 //Mount mount the requested volume
 func (d *Driver) Mount(r *volume.MountRequest) (*volume.MountResponse, error) {
-	//TODO
+	opt := mountlib.DefaultOpt
+	fdst := cmd.NewFsDir(r.Name)
+	/*
+		if fdst.Name() == "" || fdst.Name() == "local" {
+			err := checkMountpointOverlap(fdst.Root(), mountpoint)
+			if err != nil {
+				log.Fatalf("Fatal error: %v", err)
+			}
+		}
+	*/
+	if opt.VolumeName == "" {
+		opt.VolumeName = fdst.Name() + ":" + fdst.Root()
+	}
+	opt.VolumeName = strings.Replace(opt.VolumeName, ":", " ", -1)
+	opt.VolumeName = strings.Replace(opt.VolumeName, "/", " ", -1)
+	opt.VolumeName = strings.TrimSpace(opt.VolumeName)
+	if runtime.GOOS == "windows" && len(opt.VolumeName) > 32 {
+		opt.VolumeName = opt.VolumeName[:32]
+	}
+	VFS := vfs.New(fdst, &vfsflags.Opt)
+	f := VFS.Fs()
+	fs.Debugf(f, "Mounting on %q", filepath.Join(d.root, r.Name))
+	c, err := fuse.Mount(filepath.Join(d.root, r.Name), mountOptions(VFS, f.Name()+":"+f.Root(), opt)...)
+	if err != nil {
+		return nil, nil, err
+	}
 	return nil, nil
 }
 
 //Unmount unmount the requested volume
 func (d *Driver) Unmount(r *volume.UnmountRequest) error {
 	//TODO
+	// Shutdown the VFS
+	//filesys.VFS.Shutdown()
+	return fuse.Unmount(mountpoint)
 	return nil
 }
 
@@ -112,27 +145,7 @@ func (d *Driver) Unmount(r *volume.UnmountRequest) error {
 func (d *Driver) Capabilities() *volume.CapabilitiesResponse {
 	return &volume.CapabilitiesResponse{
 		Capabilities: volume.Capability{
-			Scope: "local", //We can only support `local` scope as `global` need a cluster controller logic.
+			Scope: "local", //We can only support `local` scope as `global` need a cluster controller logic (could be implemented via rc but seems out of scope).
 		},
 	}
-}
-
-//folderIsEmpty based on: http://stackoverflow.com/questions/30697324/how-to-check-if-directory-on-path-is-empty
-func folderIsEmpty(name string) (bool, error) {
-	f, err := os.Open(name)
-	if err != nil {
-		return false, err
-	}
-	defer func() {
-		err := f.Close()
-		if err != nil {
-			fs.Debugf(nil, "Unable to close folder: %v", err)
-		}
-	}()
-
-	_, err = f.Readdirnames(1) // Or f.Readdir(1)
-	if err == io.EOF {
-		return true, nil
-	}
-	return false, err // Either not empty or error, suits both cases
 }
